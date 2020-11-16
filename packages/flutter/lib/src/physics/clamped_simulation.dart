@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -21,11 +21,12 @@ class ClampedSimulation extends Simulation {
   ///
   /// The named arguments specify the ranges for the clamping behavior, as
   /// applied to [x] and [dx].
-  ClampedSimulation(this.simulation, {
+  ClampedSimulation(
+    this.simulation, {
     this.xMin = double.negativeInfinity,
     this.xMax = double.infinity,
     this.dxMin = double.negativeInfinity,
-    this.dxMax = double.infinity
+    this.dxMax = double.infinity,
   }) : assert(simulation != null),
        assert(xMax >= xMin),
        assert(dxMax >= dxMin);

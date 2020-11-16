@@ -1,24 +1,22 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import 'dart:async';
-
 import 'package:flutter/foundation.dart';
-import 'package:test/test.dart';
+import '../flutter_test_alternative.dart';
 
 void main() {
   test('SynchronousFuture control test', () async {
-    final Future<int> future = new SynchronousFuture<int>(42);
+    final Future<int> future = SynchronousFuture<int>(42);
 
-    int result;
-    future.then<Null>((int value) { result = value; });
+    int? result;
+    future.then<void>((int value) { result = value; });
 
     expect(result, equals(42));
     result = null;
 
     final Future<int> futureWithTimeout = future.timeout(const Duration(milliseconds: 1));
-    futureWithTimeout.then<Null>((int value) { result = value; });
+    futureWithTimeout.then<void>((int value) { result = value; });
     expect(result, isNull);
     await futureWithTimeout;
     expect(result, equals(42));
@@ -31,7 +29,7 @@ void main() {
     bool ranAction = false;
     final Future<int> completeResult = future.whenComplete(() {
       ranAction = true;
-      return new Future<int>.value(31);
+      return Future<int>.value(31);
     });
 
     expect(ranAction, isTrue);
@@ -39,16 +37,16 @@ void main() {
 
     expect(await completeResult, equals(42));
 
-    Object exception;
+    Object? exception;
     try {
       await future.whenComplete(() {
-        throw null;
+        throw ArgumentError();
       });
       // Unreached.
       expect(false, isTrue);
     } catch (e) {
       exception = e;
     }
-    expect(exception, isNullThrownError);
+    expect(exception, isArgumentError);
   });
 }

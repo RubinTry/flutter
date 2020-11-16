@@ -1,7 +1,9 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/painting.dart';
 
 /// An event sent by the application to notify interested listeners that
@@ -27,7 +29,7 @@ abstract class SemanticsEvent {
   ///
   /// [nodeId] is the unique identifier of the semantics node associated with
   /// the event, or null if the event is not associated with a semantics node.
-  Map<String, dynamic> toMap({ int nodeId }) {
+  Map<String, dynamic> toMap({ int? nodeId }) {
     final Map<String, dynamic> event = <String, dynamic>{
       'type': type,
       'data': getDataMap(),
@@ -46,9 +48,9 @@ abstract class SemanticsEvent {
     final List<String> pairs = <String>[];
     final Map<String, dynamic> dataMap = getDataMap();
     final List<String> sortedKeys = dataMap.keys.toList()..sort();
-    for (String key in sortedKeys)
+    for (final String key in sortedKeys)
       pairs.add('$key: ${dataMap[key]}');
-    return '$runtimeType(${pairs.join(', ')})';
+    return '${objectRuntimeType(this, 'SemanticsEvent')}(${pairs.join(', ')})';
   }
 }
 
@@ -65,10 +67,10 @@ abstract class SemanticsEvent {
 class AnnounceSemanticsEvent extends SemanticsEvent {
 
   /// Constructs an event that triggers an announcement by the platform.
-  const AnnounceSemanticsEvent(this.message, this.textDirection) :
-    assert(message != null),
-    assert(textDirection != null),
-    super('announce');
+  const AnnounceSemanticsEvent(this.message, this.textDirection)
+    : assert(message != null),
+      assert(textDirection != null),
+      super('announce');
 
   /// The message to announce.
   ///
@@ -90,7 +92,7 @@ class AnnounceSemanticsEvent extends SemanticsEvent {
 }
 
 /// An event for a semantic announcement of a tooltip.
-/// 
+///
 /// This is only used by Android to announce tooltip values.
 class TooltipSemanticsEvent extends SemanticsEvent {
 
@@ -129,6 +131,32 @@ class TapSemanticEvent extends SemanticsEvent {
 
   /// Constructs an event that triggers a long-press semantic feedback by the platform.
   const TapSemanticEvent() : super('tap');
+
+  @override
+  Map<String, dynamic> getDataMap() => const <String, dynamic>{};
+}
+
+/// An event which triggers a polite announcement of a live region.
+///
+/// This requires that the semantics node has already been marked as a live
+/// region. On Android, TalkBack will make a verbal announcement, as long as
+/// the label of the semantics node has changed since the last live region
+/// update. iOS does not currently support this event.
+///
+/// Deprecated. This message was never implemented, and references to it should
+/// be removed.
+///
+/// See also:
+///
+///  * [SemanticsFlag.isLiveRegion], for a description of live regions.
+///
+@Deprecated(
+  'This event has never been implemented and will be removed in a future version of Flutter. References to it should be removed. '
+  'This feature was deprecated after v1.12.16.'
+)
+class UpdateLiveRegionEvent extends SemanticsEvent {
+  /// Creates a new [UpdateLiveRegionEvent].
+  const UpdateLiveRegionEvent() : super('updateLiveRegion');
 
   @override
   Map<String, dynamic> getDataMap() => const <String, dynamic>{};

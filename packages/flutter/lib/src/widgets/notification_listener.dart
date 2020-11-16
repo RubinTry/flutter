@@ -1,6 +1,8 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
+
+import 'package:flutter/foundation.dart';
 
 import 'framework.dart';
 
@@ -10,7 +12,7 @@ import 'framework.dart';
 /// notification to continue to be dispatched to further ancestors.
 ///
 /// Used by [NotificationListener.onNotification].
-typedef bool NotificationListenerCallback<T extends Notification>(T notification);
+typedef NotificationListenerCallback<T extends Notification> = bool Function(T notification);
 
 /// A notification that can bubble up the widget tree.
 ///
@@ -53,17 +55,19 @@ abstract class Notification {
   ///
   /// The notification will be delivered to any [NotificationListener] widgets
   /// with the appropriate type parameters that are ancestors of the given
-  /// [BuildContext].
-  void dispatch(BuildContext target) {
-    assert(target != null); // Only call dispatch if the widget's State is still mounted.
-    target.visitAncestorElements(visitAncestor);
+  /// [BuildContext]. If the [BuildContext] is null, the notification is not
+  /// dispatched.
+  void dispatch(BuildContext? target) {
+    // The `target` may be null if the subtree the notification is supposed to be
+    // dispatched in is in the process of being disposed.
+    target?.visitAncestorElements(visitAncestor);
   }
 
   @override
   String toString() {
     final List<String> description = <String>[];
     debugFillDescription(description);
-    return '$runtimeType(${description.join(", ")})';
+    return '${objectRuntimeType(this, 'Notification')}(${description.join(", ")})';
   }
 
   /// Add additional information to the given description for use by [toString].
@@ -82,6 +86,8 @@ abstract class Notification {
 
 /// A widget that listens for [Notification]s bubbling up the tree.
 ///
+/// {@youtube 560 315 https://www.youtube.com/watch?v=cAnFbFoGM50}
+///
 /// Notifications will trigger the [onNotification] callback only if their
 /// [runtimeType] is a subtype of `T`.
 ///
@@ -89,8 +95,8 @@ abstract class Notification {
 class NotificationListener<T extends Notification> extends StatelessWidget {
   /// Creates a widget that listens for notifications.
   const NotificationListener({
-    Key key,
-    @required this.child,
+    Key? key,
+    required this.child,
     this.onNotification,
   }) : super(key: key);
 
@@ -98,7 +104,7 @@ class NotificationListener<T extends Notification> extends StatelessWidget {
   ///
   /// This is not necessarily the widget that dispatched the notification.
   ///
-  /// {@macro flutter.widgets.child}
+  /// {@macro flutter.widgets.ProxyWidget.child}
   final Widget child;
 
   /// Called when a notification of the appropriate type arrives at this
@@ -118,11 +124,11 @@ class NotificationListener<T extends Notification> extends StatelessWidget {
   /// in response to the notification (as layout is currently happening in a
   /// descendant, by definition, since notifications bubble up the tree). For
   /// widgets that depend on layout, consider a [LayoutBuilder] instead.
-  final NotificationListenerCallback<T> onNotification;
+  final NotificationListenerCallback<T>? onNotification;
 
   bool _dispatch(Notification notification, Element element) {
     if (onNotification != null && notification is T) {
-      final bool result = onNotification(notification);
+      final bool result = onNotification!(notification);
       return result == true; // so that null and false have the same effect
     }
     return false;

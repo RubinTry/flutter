@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,14 +8,14 @@ import 'test_widgets.dart';
 
 class StatefulWrapper extends StatefulWidget {
   const StatefulWrapper({
-    Key key,
-    this.child,
+    Key? key,
+    required this.child,
   }) : super(key: key);
 
   final Widget child;
 
   @override
-  StatefulWrapperState createState() => new StatefulWrapperState();
+  StatefulWrapperState createState() => StatefulWrapperState();
 }
 
 class StatefulWrapperState extends State<StatefulWrapper> {
@@ -35,8 +35,8 @@ class StatefulWrapperState extends State<StatefulWrapper> {
 
 class Wrapper extends StatelessWidget {
   const Wrapper({
-    Key key,
-    this.child,
+    Key? key,
+    required this.child,
   }) : super(key: key);
 
   final Widget child;
@@ -50,14 +50,14 @@ class Wrapper extends StatelessWidget {
 void main() {
   testWidgets('Calling setState on a widget that moves into a LayoutBuilder in the same frame', (WidgetTester tester) async {
     StatefulWrapperState statefulWrapper;
-    final Widget inner = new Wrapper(
-      child: new StatefulWrapper(
-        key: new GlobalKey(),
-        child: new Container(),
+    final Widget inner = Wrapper(
+      child: StatefulWrapper(
+        key: GlobalKey(),
+        child: Container(),
       ),
     );
-    await tester.pumpWidget(new FlipWidget(
-      left: new LayoutBuilder(builder: (BuildContext context, BoxConstraints constraints) {
+    await tester.pumpWidget(FlipWidget(
+      left: LayoutBuilder(builder: (BuildContext context, BoxConstraints constraints) {
         return inner;
       }),
       right: inner,

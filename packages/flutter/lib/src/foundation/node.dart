@@ -1,8 +1,12 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 import 'package:meta/meta.dart';
+
+// This file gets mutated by //dev/devicelab/bin/tasks/flutter_test_performance.dart
+// during device lab performance tests. When editing this file, check to make sure
+// that it didn't break that test.
 
 /// An abstract node in a tree.
 ///
@@ -65,8 +69,8 @@ class AbstractNode {
   /// The owner for this node (null if unattached).
   ///
   /// The entire subtree that this node belongs to will have the same owner.
-  Object get owner => _owner;
-  Object _owner;
+  Object? get owner => _owner;
+  Object? _owner;
 
   /// Whether this node is in a tree whose root is attached to something.
   ///
@@ -101,12 +105,12 @@ class AbstractNode {
   void detach() {
     assert(_owner != null);
     _owner = null;
-    assert(parent == null || attached == parent.attached);
+    assert(parent == null || attached == parent!.attached);
   }
 
   /// The parent of this node in the tree.
-  AbstractNode get parent => _parent;
-  AbstractNode _parent;
+  AbstractNode? get parent => _parent;
+  AbstractNode? _parent;
 
   /// Mark the given node as being a child of this node.
   ///
@@ -119,13 +123,13 @@ class AbstractNode {
     assert(() {
       AbstractNode node = this;
       while (node.parent != null)
-        node = node.parent;
+        node = node.parent!;
       assert(node != child); // indicates we are about to create a cycle
       return true;
     }());
     child._parent = this;
     if (attached)
-      child.attach(_owner);
+      child.attach(_owner!);
     redepthChild(child);
   }
 
@@ -142,5 +146,4 @@ class AbstractNode {
     if (attached)
       child.detach();
   }
-
 }

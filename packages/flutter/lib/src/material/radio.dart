@@ -1,13 +1,17 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/widgets.dart';
 
 import 'constants.dart';
 import 'debug.dart';
+import 'material_state.dart';
 import 'theme.dart';
+import 'theme_data.dart';
 import 'toggleable.dart';
 
 const double _kOuterRadius = 8.0;
@@ -20,13 +24,64 @@ const double _kInnerRadius = 4.5;
 /// be selected. The values are of type `T`, the type parameter of the [Radio]
 /// class. Enums are commonly used for this purpose.
 ///
-/// The radio button itself does not maintain any state. Instead, when the state
-/// of the radio button changes, the widget calls the [onChanged] callback.
-/// Most widget that use a radio button will listen for the [onChanged]
-/// callback and rebuild the radio button with a new [groupValue] to update the
-/// visual appearance of the radio button.
+/// The radio button itself does not maintain any state. Instead, selecting the
+/// radio invokes the [onChanged] callback, passing [value] as a parameter. If
+/// [groupValue] and [value] match, this radio will be selected. Most widgets
+/// will respond to [onChanged] by calling [State.setState] to update the
+/// radio button's [groupValue].
+///
+/// {@tool dartpad --template=stateful_widget_scaffold_center}
+///
+/// Here is an example of Radio widgets wrapped in ListTiles, which is similar
+/// to what you could get with the RadioListTile widget.
+///
+/// The currently selected character is passed into `groupValue`, which is
+/// maintained by the example's `State`. In this case, the first `Radio`
+/// will start off selected because `_character` is initialized to
+/// `SingingCharacter.lafayette`.
+///
+/// If the second radio button is pressed, the example's state is updated
+/// with `setState`, updating `_character` to `SingingCharacter.jefferson`.
+/// This causes the buttons to rebuild with the updated `groupValue`, and
+/// therefore the selection of the second button.
 ///
 /// Requires one of its ancestors to be a [Material] widget.
+///
+/// ```dart preamble
+/// enum SingingCharacter { lafayette, jefferson }
+/// ```
+///
+/// ```dart
+/// SingingCharacter _character = SingingCharacter.lafayette;
+///
+/// Widget build(BuildContext context) {
+///   return Column(
+///     children: <Widget>[
+///       ListTile(
+///         title: const Text('Lafayette'),
+///         leading: Radio(
+///           value: SingingCharacter.lafayette,
+///           groupValue: _character,
+///           onChanged: (SingingCharacter value) {
+///             setState(() { _character = value; });
+///           },
+///         ),
+///       ),
+///       ListTile(
+///         title: const Text('Thomas Jefferson'),
+///         leading: Radio(
+///           value: SingingCharacter.jefferson,
+///           groupValue: _character,
+///           onChanged: (SingingCharacter value) {
+///             setState(() { _character = value; });
+///           },
+///         ),
+///       ),
+///     ],
+///   );
+/// }
+/// ```
+/// {@end-tool}
 ///
 /// See also:
 ///
@@ -34,7 +89,7 @@ const double _kInnerRadius = 4.5;
 ///    you can give the radio button a label.
 ///  * [Slider], for selecting a value in a range.
 ///  * [Checkbox] and [Switch], for toggling a particular value on or off.
-///  * <https://material.google.com/components/selection-controls.html#selection-controls-radio-button>
+///  * <https://material.io/design/components/selection-controls.html#radio-buttons>
 class Radio<T> extends StatefulWidget {
   /// Creates a material design radio button.
   ///
@@ -50,21 +105,33 @@ class Radio<T> extends StatefulWidget {
   ///   selected.
   /// * [onChanged] is called when the user selects this radio button.
   const Radio({
-    Key key,
-    @required this.value,
-    @required this.groupValue,
-    @required this.onChanged,
-    this.activeColor
-  }) : super(key: key);
+    Key? key,
+    required this.value,
+    required this.groupValue,
+    required this.onChanged,
+    this.mouseCursor,
+    this.toggleable = false,
+    this.activeColor,
+    this.fillColor,
+    this.focusColor,
+    this.hoverColor,
+    this.splashRadius,
+    this.materialTapTargetSize,
+    this.visualDensity,
+    this.focusNode,
+    this.autofocus = false,
+  }) : assert(autofocus != null),
+       assert(toggleable != null),
+       super(key: key);
 
   /// The value represented by this radio button.
   final T value;
 
-  /// The currently selected value for this group of radio buttons.
+  /// The currently selected value for a group of radio buttons.
   ///
   /// This radio button is considered selected if its [value] matches the
   /// [groupValue].
-  final T groupValue;
+  final T? groupValue;
 
   /// Called when the user selects this radio button.
   ///
@@ -74,12 +141,15 @@ class Radio<T> extends StatefulWidget {
   ///
   /// If null, the radio button will be displayed as disabled.
   ///
+  /// The provided callback will not be invoked if this radio button is already
+  /// selected.
+  ///
   /// The callback provided to [onChanged] should update the state of the parent
   /// [StatefulWidget] using the [State.setState] method, so that the parent
   /// gets rebuilt; for example:
   ///
   /// ```dart
-  /// new Radio<SingingCharacter>(
+  /// Radio<SingingCharacter>(
   ///   value: SingingCharacter.lafayette,
   ///   groupValue: _character,
   ///   onChanged: (SingingCharacter newValue) {
@@ -89,70 +159,334 @@ class Radio<T> extends StatefulWidget {
   ///   },
   /// )
   /// ```
-  final ValueChanged<T> onChanged;
+  final ValueChanged<T?>? onChanged;
+
+  /// The cursor for a mouse pointer when it enters or is hovering over the
+  /// widget.
+  ///
+  /// If [mouseCursor] is a [MaterialStateProperty<MouseCursor>],
+  /// [MaterialStateProperty.resolve] is used for the following [MaterialState]s:
+  ///
+  ///  * [MaterialState.selected].
+  ///  * [MaterialState.hovered].
+  ///  * [MaterialState.focused].
+  ///  * [MaterialState.disabled].
+  ///
+  /// If this property is null, [MaterialStateMouseCursor.clickable] will be used.
+  final MouseCursor? mouseCursor;
+
+  /// Set to true if this radio button is allowed to be returned to an
+  /// indeterminate state by selecting it again when selected.
+  ///
+  /// To indicate returning to an indeterminate state, [onChanged] will be
+  /// called with null.
+  ///
+  /// If true, [onChanged] can be called with [value] when selected while
+  /// [groupValue] != [value], or with null when selected again while
+  /// [groupValue] == [value].
+  ///
+  /// If false, [onChanged] will be called with [value] when it is selected
+  /// while [groupValue] != [value], and only by selecting another radio button
+  /// in the group (i.e. changing the value of [groupValue]) can this radio
+  /// button be unselected.
+  ///
+  /// The default is false.
+  ///
+  /// {@tool dartpad --template=stateful_widget_scaffold}
+  /// This example shows how to enable deselecting a radio button by setting the
+  /// [toggleable] attribute.
+  ///
+  /// ```dart
+  /// int groupValue;
+  /// static const List<String> selections = <String>[
+  ///   'Hercules Mulligan',
+  ///   'Eliza Hamilton',
+  ///   'Philip Schuyler',
+  ///   'Maria Reynolds',
+  ///   'Samuel Seabury',
+  /// ];
+  ///
+  /// @override
+  /// Widget build(BuildContext context) {
+  ///   return Scaffold(
+  ///     body: ListView.builder(
+  ///       itemBuilder: (context, index) {
+  ///         return Row(
+  ///           mainAxisSize: MainAxisSize.min,
+  ///           crossAxisAlignment: CrossAxisAlignment.center,
+  ///           children: <Widget>[
+  ///             Radio<int>(
+  ///                 value: index,
+  ///                 groupValue: groupValue,
+  ///                 // TRY THIS: Try setting the toggleable value to false and
+  ///                 // see how that changes the behavior of the widget.
+  ///                 toggleable: true,
+  ///                 onChanged: (int value) {
+  ///                   setState(() {
+  ///                     groupValue = value;
+  ///                   });
+  ///                 }),
+  ///             Text(selections[index]),
+  ///           ],
+  ///         );
+  ///       },
+  ///       itemCount: selections.length,
+  ///     ),
+  ///   );
+  /// }
+  /// ```
+  /// {@end-tool}
+  final bool toggleable;
 
   /// The color to use when this radio button is selected.
   ///
   /// Defaults to [ThemeData.toggleableActiveColor].
-  final Color activeColor;
+  ///
+  /// If [fillColor] returns a non-null color in the [MaterialState.selected]
+  /// state, it will be used instead of this color.
+  final Color? activeColor;
+
+  /// The color that fills the checkbox when it is checked, in all
+  /// [MaterialState]s.
+  ///
+  /// If this is provided, it will be used over [activeColor].
+  ///
+  /// Resolves in the following states:
+  ///  * [MaterialState.selected].
+  ///  * [MaterialState.hovered].
+  ///  * [MaterialState.focused].
+  ///  * [MaterialState.disabled].
+  final MaterialStateProperty<Color?>? fillColor;
+
+  /// Configures the minimum size of the tap target.
+  ///
+  /// Defaults to [ThemeData.materialTapTargetSize].
+  ///
+  /// See also:
+  ///
+  ///  * [MaterialTapTargetSize], for a description of how this affects tap targets.
+  final MaterialTapTargetSize? materialTapTargetSize;
+
+  /// Defines how compact the radio's layout will be.
+  ///
+  /// {@macro flutter.material.themedata.visualDensity}
+  ///
+  /// See also:
+  ///
+  ///  * [ThemeData.visualDensity], which specifies the [visualDensity] for all
+  ///    widgets within a [Theme].
+  final VisualDensity? visualDensity;
+
+  /// The color for the radio's [Material] when it has the input focus.
+  final Color? focusColor;
+
+  /// The color for the radio's [Material] when a pointer is hovering over it.
+  final Color? hoverColor;
+
+  /// The splash radius of the circular [Material] ink response.
+  ///
+  /// If null, then [kRadialReactionRadius] is used.
+  final double? splashRadius;
+
+  /// {@macro flutter.widgets.Focus.focusNode}
+  final FocusNode? focusNode;
+
+  /// {@macro flutter.widgets.Focus.autofocus}
+  final bool autofocus;
 
   @override
-  _RadioState<T> createState() => new _RadioState<T>();
+  _RadioState<T> createState() => _RadioState<T>();
 }
 
 class _RadioState<T> extends State<Radio<T>> with TickerProviderStateMixin {
-  bool get _enabled => widget.onChanged != null;
+  bool get enabled => widget.onChanged != null;
+  late Map<Type, Action<Intent>> _actionMap;
 
-  Color _getInactiveColor(ThemeData themeData) {
-    return _enabled ? themeData.unselectedWidgetColor : themeData.disabledColor;
+  @override
+  void initState() {
+    super.initState();
+    _actionMap = <Type, Action<Intent>>{
+      ActivateIntent: CallbackAction<ActivateIntent>(
+        onInvoke: _actionHandler,
+      ),
+    };
   }
 
-  void _handleChanged(bool selected) {
-    if (selected)
-      widget.onChanged(widget.value);
+  void _actionHandler(ActivateIntent intent) {
+    if (widget.onChanged != null) {
+      widget.onChanged!(widget.value);
+    }
+    final RenderObject renderObject = context.findRenderObject()!;
+    renderObject.sendSemanticsEvent(const TapSemanticEvent());
+  }
+
+  bool _focused = false;
+  void _handleHighlightChanged(bool focused) {
+    if (_focused != focused) {
+      setState(() { _focused = focused; });
+    }
+  }
+
+  bool _hovering = false;
+  void _handleHoverChanged(bool hovering) {
+    if (_hovering != hovering) {
+      setState(() { _hovering = hovering; });
+    }
+  }
+
+  void _handleChanged(bool? selected) {
+    if (selected == null) {
+      widget.onChanged!(null);
+      return;
+    }
+    if (selected) {
+      widget.onChanged!(widget.value);
+    }
+  }
+
+  bool get _selected => widget.value == widget.groupValue;
+
+  Set<MaterialState> get _states => <MaterialState>{
+    if (!enabled) MaterialState.disabled,
+    if (_hovering) MaterialState.hovered,
+    if (_focused) MaterialState.focused,
+    if (_selected) MaterialState.selected,
+  };
+
+  MaterialStateProperty<Color?> get _widgetFillColor {
+    return MaterialStateProperty.resolveWith((Set<MaterialState> states) {
+      if (states.contains(MaterialState.disabled)) {
+        return null;
+      }
+      if (states.contains(MaterialState.selected)) {
+        return widget.activeColor;
+      }
+      return null;
+    });
+  }
+
+  MaterialStateProperty<Color> get _defaultFillColor {
+    final ThemeData themeData = Theme.of(context);
+    return MaterialStateProperty.resolveWith((Set<MaterialState> states) {
+      if (states.contains(MaterialState.disabled)) {
+        return themeData.disabledColor;
+      }
+      if (states.contains(MaterialState.selected)) {
+        return themeData.toggleableActiveColor;
+      }
+      return themeData.unselectedWidgetColor;
+    });
   }
 
   @override
   Widget build(BuildContext context) {
     assert(debugCheckHasMaterial(context));
     final ThemeData themeData = Theme.of(context);
-    return new _RadioRenderObjectWidget(
-      selected: widget.value == widget.groupValue,
-      activeColor: widget.activeColor ?? themeData.toggleableActiveColor,
-      inactiveColor: _getInactiveColor(themeData),
-      onChanged: _enabled ? _handleChanged : null,
-      vsync: this,
+    Size size;
+    switch (widget.materialTapTargetSize ?? themeData.materialTapTargetSize) {
+      case MaterialTapTargetSize.padded:
+        size = const Size(kMinInteractiveDimension, kMinInteractiveDimension);
+        break;
+      case MaterialTapTargetSize.shrinkWrap:
+        size = const Size(kMinInteractiveDimension - 8.0, kMinInteractiveDimension - 8.0);
+        break;
+    }
+    size += (widget.visualDensity ?? themeData.visualDensity).baseSizeAdjustment;
+    final BoxConstraints additionalConstraints = BoxConstraints.tight(size);
+    final MouseCursor effectiveMouseCursor = MaterialStateProperty.resolveAs<MouseCursor>(
+      widget.mouseCursor ?? MaterialStateMouseCursor.clickable,
+      _states,
+    );
+    // Colors need to be resolved in selected and non selected states separately
+    // so that they can be lerped between.
+    final Set<MaterialState> activeStates = _states..add(MaterialState.selected);
+    final Set<MaterialState> inactiveStates = _states..remove(MaterialState.selected);
+    final Color effectiveActiveColor = widget.fillColor?.resolve(activeStates)
+      ?? _widgetFillColor.resolve(activeStates)
+      ?? _defaultFillColor.resolve(activeStates);
+    final Color effectiveInactiveColor = widget.fillColor?.resolve(inactiveStates)
+      ?? _widgetFillColor.resolve(inactiveStates)
+      ?? _defaultFillColor.resolve(inactiveStates);
+
+    return FocusableActionDetector(
+      actions: _actionMap,
+      focusNode: widget.focusNode,
+      autofocus: widget.autofocus,
+      mouseCursor: effectiveMouseCursor,
+      enabled: enabled,
+      onShowFocusHighlight: _handleHighlightChanged,
+      onShowHoverHighlight: _handleHoverChanged,
+      child: Builder(
+        builder: (BuildContext context) {
+          return _RadioRenderObjectWidget(
+            selected: _selected,
+            activeColor: effectiveActiveColor,
+            inactiveColor: effectiveInactiveColor,
+            focusColor: widget.focusColor ?? themeData.focusColor,
+            hoverColor: widget.hoverColor ?? themeData.hoverColor,
+            splashRadius: widget.splashRadius ?? kRadialReactionRadius,
+            onChanged: enabled ? _handleChanged : null,
+            toggleable: widget.toggleable,
+            additionalConstraints: additionalConstraints,
+            vsync: this,
+            hasFocus: _focused,
+            hovering: _hovering,
+          );
+        },
+      ),
     );
   }
 }
 
 class _RadioRenderObjectWidget extends LeafRenderObjectWidget {
   const _RadioRenderObjectWidget({
-    Key key,
-    @required this.selected,
-    @required this.activeColor,
-    @required this.inactiveColor,
+    Key? key,
+    required this.selected,
+    required this.activeColor,
+    required this.inactiveColor,
+    required this.focusColor,
+    required this.hoverColor,
+    required this.additionalConstraints,
     this.onChanged,
-    @required this.vsync,
+    required this.toggleable,
+    required this.vsync,
+    required this.hasFocus,
+    required this.hovering,
+    required this.splashRadius,
   }) : assert(selected != null),
        assert(activeColor != null),
        assert(inactiveColor != null),
        assert(vsync != null),
+       assert(toggleable != null),
        super(key: key);
 
   final bool selected;
+  final bool hasFocus;
+  final bool hovering;
   final Color inactiveColor;
   final Color activeColor;
-  final ValueChanged<bool> onChanged;
+  final Color focusColor;
+  final Color hoverColor;
+  final double splashRadius;
+  final ValueChanged<bool?>? onChanged;
+  final bool toggleable;
   final TickerProvider vsync;
+  final BoxConstraints additionalConstraints;
 
   @override
-  _RenderRadio createRenderObject(BuildContext context) => new _RenderRadio(
+  _RenderRadio createRenderObject(BuildContext context) => _RenderRadio(
     value: selected,
     activeColor: activeColor,
     inactiveColor: inactiveColor,
+    focusColor: focusColor,
+    hoverColor: hoverColor,
+    splashRadius: splashRadius,
     onChanged: onChanged,
+    tristate: toggleable,
     vsync: vsync,
+    additionalConstraints: additionalConstraints,
+    hasFocus: hasFocus,
+    hovering: hovering,
   );
 
   @override
@@ -161,40 +495,58 @@ class _RadioRenderObjectWidget extends LeafRenderObjectWidget {
       ..value = selected
       ..activeColor = activeColor
       ..inactiveColor = inactiveColor
+      ..focusColor = focusColor
+      ..hoverColor = hoverColor
+      ..splashRadius = splashRadius
       ..onChanged = onChanged
-      ..vsync = vsync;
+      ..tristate = toggleable
+      ..additionalConstraints = additionalConstraints
+      ..vsync = vsync
+      ..hasFocus = hasFocus
+      ..hovering = hovering;
   }
 }
 
 class _RenderRadio extends RenderToggleable {
   _RenderRadio({
-    bool value,
-    Color activeColor,
-    Color inactiveColor,
-    ValueChanged<bool> onChanged,
-    @required TickerProvider vsync,
-  }): super(
-    value: value,
-    tristate: false,
-    activeColor: activeColor,
-    inactiveColor: inactiveColor,
-    onChanged: onChanged,
-    size: const Size(2 * kRadialReactionRadius, 2 * kRadialReactionRadius),
-    vsync: vsync,
-  );
+    required bool value,
+    required Color activeColor,
+    required Color inactiveColor,
+    required Color focusColor,
+    required Color hoverColor,
+    required double splashRadius,
+    required ValueChanged<bool?>? onChanged,
+    required bool tristate,
+    required BoxConstraints additionalConstraints,
+    required TickerProvider vsync,
+    required bool hasFocus,
+    required bool hovering,
+  }) : super(
+         value: value,
+         activeColor: activeColor,
+         inactiveColor: inactiveColor,
+         focusColor: focusColor,
+         hoverColor: hoverColor,
+         splashRadius: splashRadius,
+         onChanged: onChanged,
+         tristate: tristate,
+         additionalConstraints: additionalConstraints,
+         vsync: vsync,
+         hasFocus: hasFocus,
+         hovering: hovering,
+       );
 
   @override
   void paint(PaintingContext context, Offset offset) {
     final Canvas canvas = context.canvas;
 
-    paintRadialReaction(canvas, offset, const Offset(kRadialReactionRadius, kRadialReactionRadius));
+    paintRadialReaction(canvas, offset, size.center(Offset.zero));
 
     final Offset center = (offset & size).center;
-    final Color radioColor = onChanged != null ? activeColor : inactiveColor;
 
     // Outer circle
-    final Paint paint = new Paint()
-      ..color = Color.lerp(inactiveColor, radioColor, position.value)
+    final Paint paint = Paint()
+      ..color = Color.lerp(inactiveColor, activeColor, position.value)!
       ..style = PaintingStyle.stroke
       ..strokeWidth = 2.0;
     canvas.drawCircle(center, _kOuterRadius, paint);
@@ -209,6 +561,8 @@ class _RenderRadio extends RenderToggleable {
   @override
   void describeSemanticsConfiguration(SemanticsConfiguration config) {
     super.describeSemanticsConfiguration(config);
-    config.isInMutuallyExclusiveGroup = true;
+    config
+      ..isInMutuallyExclusiveGroup = true
+      ..isChecked = value == true;
   }
 }

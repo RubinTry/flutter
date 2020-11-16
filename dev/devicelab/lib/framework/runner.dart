@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,10 +9,9 @@ import 'dart:io';
 import 'package:vm_service_client/vm_service_client.dart';
 
 import 'package:flutter_devicelab/framework/utils.dart';
+import 'package:flutter_devicelab/framework/adb.dart';
 
-/// Slightly longer than task timeout that gives the task runner a chance to
-/// clean-up before forcefully quitting it.
-const Duration taskTimeoutWithGracePeriod = const Duration(minutes: 26);
+import 'task_result.dart';
 
 /// Runs a task in a separate Dart VM and collects the result using the VM
 /// service protocol.
@@ -22,18 +21,33 @@ const Duration taskTimeoutWithGracePeriod = const Duration(minutes: 26);
 ///
 /// Running the task in [silent] mode will suppress standard output from task
 /// processes and only print standard errors.
-Future<Map<String, dynamic>> runTask(String taskName, { bool silent = false }) async {
+Future<TaskResult> runTask(
+  String taskName, {
+  bool silent = false,
+  String localEngine,
+  String localEngineSrcPath,
+  String deviceId,
+}) async {
   final String taskExecutable = 'bin/tasks/$taskName.dart';
 
   if (!file(taskExecutable).existsSync())
     throw 'Executable Dart file not found: $taskExecutable';
 
-  final int vmServicePort = await findAvailablePort();
-  final Process runner = await startProcess(dartBin, <String>[
-    '--enable-vm-service=$vmServicePort',
-    '--no-pause-isolates-on-exit',
-    taskExecutable,
-  ]);
+  final Process runner = await startProcess(
+    dartBin,
+    <String>[
+      '--disable-dart-dev',
+      '--enable-vm-service=0', // zero causes the system to choose a free port
+      '--no-pause-isolates-on-exit',
+      if (localEngine != null) '-DlocalEngine=$localEngine',
+      if (localEngineSrcPath != null) '-DlocalEngineSrcPath=$localEngineSrcPath',
+      taskExecutable,
+    ],
+    environment: <String, String>{
+      if (deviceId != null)
+        DeviceIdEnvName: deviceId,
+    },
+  );
 
   bool runnerFinished = false;
 
@@ -41,55 +55,52 @@ Future<Map<String, dynamic>> runTask(String taskName, { bool silent = false }) a
     runnerFinished = true;
   });
 
+  final Completer<Uri> uri = Completer<Uri>();
+
   final StreamSubscription<String> stdoutSub = runner.stdout
-      .transform(const Utf8Decoder())
-      .transform(const LineSplitter())
+      .transform<String>(const Utf8Decoder())
+      .transform<String>(const LineSplitter())
       .listen((String line) {
+    if (!uri.isCompleted) {
+      final Uri serviceUri = parseServiceUri(line, prefix: 'Observatory listening on ');
+      if (serviceUri != null)
+        uri.complete(serviceUri);
+    }
     if (!silent) {
       stdout.writeln('[$taskName] [STDOUT] $line');
     }
   });
 
   final StreamSubscription<String> stderrSub = runner.stderr
-      .transform(const Utf8Decoder())
-      .transform(const LineSplitter())
+      .transform<String>(const Utf8Decoder())
+      .transform<String>(const LineSplitter())
       .listen((String line) {
     stderr.writeln('[$taskName] [STDERR] $line');
   });
 
-  String waitingFor = 'connection';
   try {
-    final VMIsolateRef isolate = await _connectToRunnerIsolate(vmServicePort);
-    waitingFor = 'task completion';
-    final Map<String, dynamic> taskResult =
-        await isolate.invokeExtension('ext.cocoonRunTask').timeout(taskTimeoutWithGracePeriod);
-    waitingFor = 'task process to exit';
-    await runner.exitCode.timeout(const Duration(seconds: 1));
+    final VMIsolateRef isolate = await _connectToRunnerIsolate(await uri.future);
+    final Map<String, dynamic> taskResultJson = await isolate.invokeExtension('ext.cocoonRunTask') as Map<String, dynamic>;
+    final TaskResult taskResult = TaskResult.fromJson(taskResultJson);
+    await runner.exitCode;
     return taskResult;
-  } on TimeoutException catch (timeout) {
-    runner.kill(ProcessSignal.SIGINT); // ignore: deprecated_member_use
-    return <String, dynamic>{
-      'success': false,
-      'reason': 'Timeout waiting for $waitingFor: ${timeout.message}',
-    };
   } finally {
     if (!runnerFinished)
-      runner.kill(ProcessSignal.SIGKILL); // ignore: deprecated_member_use
+      runner.kill(ProcessSignal.sigkill);
     await stdoutSub.cancel();
     await stderrSub.cancel();
   }
 }
 
-Future<VMIsolateRef> _connectToRunnerIsolate(int vmServicePort) async {
-  final String url = 'ws://localhost:$vmServicePort/ws';
-  final DateTime started = new DateTime.now();
-
-  // TODO(yjbanov): due to lack of imagination at the moment the handshake with
-  //                the task process is very rudimentary and requires this small
-  //                delay to let the task process open up the VM service port.
-  //                Otherwise we almost always hit the non-ready case first and
-  //                wait a whole 1 second, which is annoying.
-  await new Future<Null>.delayed(const Duration(milliseconds: 100));
+Future<VMIsolateRef> _connectToRunnerIsolate(Uri vmServiceUri) async {
+  final List<String> pathSegments = <String>[
+    // Add authentication code.
+    if (vmServiceUri.pathSegments.isNotEmpty) vmServiceUri.pathSegments[0],
+    'ws',
+  ];
+  final String url = vmServiceUri.replace(scheme: 'ws', pathSegments:
+      pathSegments).toString();
+  final Stopwatch stopwatch = Stopwatch()..start();
 
   while (true) {
     try {
@@ -97,25 +108,17 @@ Future<VMIsolateRef> _connectToRunnerIsolate(int vmServicePort) async {
       await (await WebSocket.connect(url)).close();
 
       // Look up the isolate.
-      final VMServiceClient client = new VMServiceClient.connect(url);
+      final VMServiceClient client = VMServiceClient.connect(url);
       final VM vm = await client.getVM();
       final VMIsolateRef isolate = vm.isolates.single;
-      final String response = await isolate.invokeExtension('ext.cocoonRunnerReady');
+      final String response = await isolate.invokeExtension('ext.cocoonRunnerReady') as String;
       if (response != 'ready')
         throw 'not ready yet';
       return isolate;
     } catch (error) {
-      const Duration connectionTimeout = const Duration(seconds: 2);
-      if (new DateTime.now().difference(started) > connectionTimeout) {
-        throw new TimeoutException(
-          'Failed to connect to the task runner process',
-          connectionTimeout,
-        );
-      }
-      print('VM service not ready yet: $error');
-      const Duration pauseBetweenRetries = const Duration(milliseconds: 200);
-      print('Will retry in $pauseBetweenRetries.');
-      await new Future<Null>.delayed(pauseBetweenRetries);
+      if (stopwatch.elapsed > const Duration(seconds: 10))
+        print('VM service still not ready after ${stopwatch.elapsed}: $error\nContinuing to retry...');
+      await Future<void>.delayed(const Duration(milliseconds: 50));
     }
   }
 }
